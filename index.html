@@ -581,51 +581,39 @@ function runPipeline(wb) {
     return;
   }
 
-  // ── Read sheet using header:1 (row arrays) so we control column mapping ──
-  // This avoids SheetJS silently dropping or mangling a blank first-column header.
-  const sheetOpts = { header: 1, defval: null, raw: false, dateNF: 'yyyy-mm-dd' };
-  const allRows = tableRange
-    ? XLSX.utils.sheet_to_json(targetWs, { ...sheetOpts, range: tableRange })
-    : XLSX.utils.sheet_to_json(targetWs, { ...sheetOpts });
+  // Read sheet as key-value rows using SheetJS default mode
+  const sheetOpts = { defval: null, raw: false, dateNF: 'yyyy-mm-dd' };
+  let rawRows = tableRange
+    ? XLSX.utils.sheet_to_json(targetWs, Object.assign({}, sheetOpts, { range: tableRange }))
+    : XLSX.utils.sheet_to_json(targetWs, sheetOpts);
 
-  if (!allRows || allRows.length < 2) {
+  if (!rawRows || rawRows.length === 0) {
     showError('No data found in the table. Please check the workbook.');
-    hide('processing');
-    return;
-  }
-
-  // Row 0 is the header row — extract it and map columns
-  const headerRow = allRows[0];
-
-  // The first column has a blank header in Excel (Power Query calls it "Column1").
-  // We rename it to "Name" regardless of what SheetJS calls it.
-  // Find the index of known columns; treat column 0 as "Name".
-  const colMap = headerRow.map((h, i) => {
-    if (i === 0) return 'Name';                          // blank header → Name
-    return (h !== null && h !== undefined && h !== '') ? String(h).trim() : `__col${i}`;
-  });
-
-  // Convert array rows → objects using our colMap
-  let rawRows = allRows.slice(1).map(rowArr => {
-    const obj = {};
-    colMap.forEach((colName, i) => {
-      obj[colName] = rowArr[i] !== undefined ? rowArr[i] : null;
-    });
-    return obj;
-  });
-
-  if (rawRows.length === 0) {
-    showError('No data rows found in the table.');
     hide('processing');
     return;
   }
 
   // ── Query 1 transformations ──────────────────────────────
 
-  // 1. Fill down "Name" — appears once per group, blank below until next group
+  // 1. Rename first column → "Name".
+  //    Excel shows the header as "Column 1" (with a space); Power Query calls it "Column1".
+  //    Also guard against SheetJS __EMPTY variants for truly blank headers.
+  rawRows = rawRows.map(row => {
+    const r = Object.assign({}, row);
+    for (const alias of ['Column 1', 'Column1', '__EMPTY', '__EMPTY_1']) {
+      if (alias in r) {
+        r['Name'] = r[alias];
+        delete r[alias];
+        break;
+      }
+    }
+    return r;
+  });
+
+  // 2. Fill down "Name" — value appears once per group, blank on rows below
   let lastName = null;
   rawRows = rawRows.map(row => {
-    const r = { ...row };
+    const r = Object.assign({}, row);
     const nameVal = r['Name'];
     if (nameVal !== null && nameVal !== undefined && String(nameVal).trim() !== '') {
       lastName = String(nameVal).trim();
