@@ -547,77 +547,90 @@ function handleFile(file) {
 // ─── Pipeline ─────────────────────────────────────────────
 function runPipeline(wb) {
 
-  // Find the named table "EstimatesandProgressInvoicing"
-  const tableNames = Object.keys(wb.Workbook?.WBProps || {});
-
-  // SheetJS exposes defined names/tables via wb.Workbook.Names and wb.Workbook.Sheets
-  // Tables are stored in worksheet objects — iterate sheets to find the table
-  let rawRows = null;
-  let tableFound = false;
+  // Find the worksheet containing the named table "EstimatesandProgressInvoicing"
+  let targetWs = null;
+  let tableRange = null;
 
   for (const sheetName of wb.SheetNames) {
     const ws = wb.Sheets[sheetName];
-    // SheetJS stores table info in ws['!tables'] (array of table defs)
     const tables = ws['!tables'];
     if (tables) {
       for (const tbl of tables) {
         if (tbl.name === 'EstimatesandProgressInvoicing') {
-          // Parse the table range
-          const range = tbl.ref || tbl.tableRange;
-          rawRows = XLSX.utils.sheet_to_json(ws, {
-            range: range,
-            defval: null,
-            raw: false,
-            dateNF: 'yyyy-mm-dd'
-          });
-          tableFound = true;
+          targetWs = ws;
+          tableRange = tbl.ref || tbl.tableRange || null;
           break;
         }
       }
     }
-    if (tableFound) break;
+    if (targetWs) break;
   }
 
-  // Fallback: if table metadata not found, try sheet named similarly or first sheet
-  if (!tableFound) {
-    // Try to find a sheet whose name contains "Estimate" or use the first sheet
-    let targetSheet = wb.SheetNames.find(n =>
+  // Fallback: find sheet by name similarity
+  if (!targetWs) {
+    const fallbackName = wb.SheetNames.find(n =>
       n.replace(/\s/g,'').toLowerCase().includes('estimate') ||
       n.replace(/\s/g,'').toLowerCase().includes('invoic')
     ) || wb.SheetNames[0];
-
-    const ws = wb.Sheets[targetSheet];
-    rawRows = XLSX.utils.sheet_to_json(ws, {
-      defval: null,
-      raw: false,
-      dateNF: 'yyyy-mm-dd'
-    });
+    targetWs = wb.Sheets[fallbackName];
   }
 
-  if (!rawRows || rawRows.length === 0) {
+  if (!targetWs) {
     showError('No data found. Make sure the workbook contains the table "EstimatesandProgressInvoicing".');
+    hide('processing');
+    return;
+  }
+
+  // ── Read sheet using header:1 (row arrays) so we control column mapping ──
+  // This avoids SheetJS silently dropping or mangling a blank first-column header.
+  const sheetOpts = { header: 1, defval: null, raw: false, dateNF: 'yyyy-mm-dd' };
+  const allRows = tableRange
+    ? XLSX.utils.sheet_to_json(targetWs, { ...sheetOpts, range: tableRange })
+    : XLSX.utils.sheet_to_json(targetWs, { ...sheetOpts });
+
+  if (!allRows || allRows.length < 2) {
+    showError('No data found in the table. Please check the workbook.');
+    hide('processing');
+    return;
+  }
+
+  // Row 0 is the header row — extract it and map columns
+  const headerRow = allRows[0];
+
+  // The first column has a blank header in Excel (Power Query calls it "Column1").
+  // We rename it to "Name" regardless of what SheetJS calls it.
+  // Find the index of known columns; treat column 0 as "Name".
+  const colMap = headerRow.map((h, i) => {
+    if (i === 0) return 'Name';                          // blank header → Name
+    return (h !== null && h !== undefined && h !== '') ? String(h).trim() : `__col${i}`;
+  });
+
+  // Convert array rows → objects using our colMap
+  let rawRows = allRows.slice(1).map(rowArr => {
+    const obj = {};
+    colMap.forEach((colName, i) => {
+      obj[colName] = rowArr[i] !== undefined ? rowArr[i] : null;
+    });
+    return obj;
+  });
+
+  if (rawRows.length === 0) {
+    showError('No data rows found in the table.');
     hide('processing');
     return;
   }
 
   // ── Query 1 transformations ──────────────────────────────
 
-  // 1. Rename "Column1" → "Name" (if present — Excel may auto-name it)
-  rawRows = rawRows.map(row => {
-    const r = { ...row };
-    if ('Column1' in r) { r['Name'] = r['Column1']; delete r['Column1']; }
-    return r;
-  });
-
-  // 2. Fill down "Name" (propagate last non-null value downward)
+  // 1. Fill down "Name" — appears once per group, blank below until next group
   let lastName = null;
   rawRows = rawRows.map(row => {
     const r = { ...row };
-    if (r['Name'] !== null && r['Name'] !== '' && r['Name'] !== undefined) {
-      lastName = r['Name'];
-    } else {
-      r['Name'] = lastName;
+    const nameVal = r['Name'];
+    if (nameVal !== null && nameVal !== undefined && String(nameVal).trim() !== '') {
+      lastName = String(nameVal).trim();
     }
+    r['Name'] = lastName || '';
     return r;
   });
 
