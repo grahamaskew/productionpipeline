@@ -7,21 +7,22 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
-<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0d0f0e;
-    --surface: #141714;
-    --surface2: #1c201c;
-    --border: #2a302a;
-    --accent: #b8f07a;
-    --accent-dim: #7aad44;
-    --text: #e8ede8;
-    --text-muted: #6b7a6b;
-    --text-dim: #9aaa9a;
-    --danger: #f07a7a;
-    --gold: #f0c87a;
-    --radius: 4px;
+    --bg: #f4f6fb;
+    --surface: #ffffff;
+    --surface2: #edf0f8;
+    --border: #d4daf0;
+    --accent: #6687e1;
+    --accent-dim: #4a6abf;
+    --accent-light: rgba(102,135,225,0.10);
+    --text: #1a1f36;
+    --text-muted: #6b7590;
+    --text-dim: #8892b0;
+    --danger: #e05555;
+    --gold: #b07d2a;
+    --radius: 6px;
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -29,22 +30,20 @@
   body {
     background: var(--bg);
     color: var(--text);
-    font-family: 'DM Mono', monospace;
+    font-family: 'Geist', sans-serif;
     font-size: 13px;
     min-height: 100vh;
     overflow-x: hidden;
   }
 
-  /* Subtle grid background */
+  /* Subtle dot background */
   body::before {
     content: '';
     position: fixed;
     inset: 0;
-    background-image:
-      linear-gradient(var(--border) 1px, transparent 1px),
-      linear-gradient(90deg, var(--border) 1px, transparent 1px);
-    background-size: 40px 40px;
-    opacity: 0.3;
+    background-image: radial-gradient(circle, #6687e1 1px, transparent 1px);
+    background-size: 28px 28px;
+    opacity: 0.07;
     pointer-events: none;
     z-index: 0;
   }
@@ -60,6 +59,25 @@
   /* Header */
   .header {
     margin-bottom: 48px;
+  }
+
+  .header-top {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 16px;
+  }
+
+  .header-logo {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: contain;
+    flex-shrink: 0;
+    filter: none;
+    background: #ffffff;
+    padding: 3px;
+    box-shadow: 0 1px 4px rgba(102,135,225,0.15);
   }
 
   .header-label {
@@ -82,11 +100,12 @@
   }
 
   h1 {
-    font-family: 'DM Serif Display', serif;
+    font-family: 'Geist', sans-serif;
     font-size: clamp(36px, 5vw, 56px);
     font-weight: 400;
     line-height: 1.05;
     color: var(--text);
+    font-weight: 600;
     letter-spacing: -0.02em;
   }
 
@@ -120,17 +139,17 @@
     content: '';
     position: absolute;
     inset: 0;
-    background: radial-gradient(ellipse at 50% 0%, rgba(184,240,122,0.04) 0%, transparent 70%);
+    background: radial-gradient(ellipse at 50% 0%, rgba(102,135,225,0.06) 0%, transparent 70%);
     pointer-events: none;
   }
 
   .upload-zone:hover, .upload-zone.drag-over {
     border-color: var(--accent);
-    background: var(--surface2);
+    background: var(--accent-light);
   }
 
   .upload-zone:hover::before, .upload-zone.drag-over::before {
-    background: radial-gradient(ellipse at 50% 0%, rgba(184,240,122,0.08) 0%, transparent 70%);
+    background: radial-gradient(ellipse at 50% 0%, rgba(102,135,225,0.12) 0%, transparent 70%);
   }
 
   .upload-icon {
@@ -147,7 +166,7 @@
   }
 
   .upload-title {
-    font-family: 'DM Serif Display', serif;
+    font-family: 'Geist', sans-serif;
     font-size: 22px;
     color: var(--text);
     margin-bottom: 8px;
@@ -168,8 +187,8 @@
   /* Error */
   .error-box {
     display: none;
-    background: rgba(240,122,122,0.08);
-    border: 1px solid rgba(240,122,122,0.3);
+    background: rgba(224,85,85,0.06);
+    border: 1px solid rgba(224,85,85,0.25);
     border-radius: var(--radius);
     padding: 14px 18px;
     color: var(--danger);
@@ -244,7 +263,7 @@
   }
 
   .total-value {
-    font-family: 'DM Serif Display', serif;
+    font-family: 'Geist', sans-serif;
     font-size: 40px;
     color: var(--accent);
     letter-spacing: -0.02em;
@@ -273,7 +292,7 @@
   }
 
   .section-title {
-    font-family: 'DM Serif Display', serif;
+    font-family: 'Geist', sans-serif;
     font-size: 20px;
     color: var(--text);
   }
@@ -326,17 +345,17 @@
 
   td {
     padding: 9px 14px;
-    border-bottom: 1px solid rgba(42,48,42,0.5);
+    border-bottom: 1px solid rgba(212,218,240,0.8);
     color: var(--text-dim);
     white-space: nowrap;
   }
 
   tr:last-child td { border-bottom: none; }
 
-  tr:hover td { background: var(--surface2); color: var(--text); }
+  tr:hover td { background: var(--accent-light); color: var(--text); }
 
   td.num { text-align: right; font-variant-numeric: tabular-nums; }
-  td.currency { text-align: right; font-variant-numeric: tabular-nums; color: var(--gold); }
+  td.currency { text-align: right; font-variant-numeric: tabular-nums; color: var(--accent-dim); font-weight: 500; }
 
   /* Action bar */
   .action-bar {
@@ -352,7 +371,7 @@
     gap: 8px;
     padding: 10px 20px;
     border-radius: var(--radius);
-    font-family: 'DM Mono', monospace;
+    font-family: 'Geist', sans-serif;
     font-size: 11px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -363,27 +382,27 @@
 
   .btn-primary {
     background: var(--accent);
-    color: #0d0f0e;
+    color: #ffffff;
     font-weight: 500;
   }
 
-  .btn-primary:hover { background: #cbf59a; }
+  .btn-primary:hover { background: #8aa3e8; }
 
   .btn-outline {
-    background: transparent;
+    background: var(--surface);
     border-color: var(--border);
     color: var(--text-muted);
   }
 
-  .btn-outline:hover { border-color: var(--text-muted); color: var(--text); }
+  .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
 
   .btn-reset {
-    background: transparent;
-    border-color: rgba(240,122,122,0.3);
+    background: var(--surface);
+    border-color: rgba(224,85,85,0.3);
     color: var(--danger);
   }
 
-  .btn-reset:hover { background: rgba(240,122,122,0.08); border-color: var(--danger); }
+  .btn-reset:hover { background: rgba(224,85,85,0.06); border-color: var(--danger); }
 
   /* Divider */
   .divider {
@@ -424,7 +443,10 @@
 
   <!-- Header -->
   <div class="header">
-    <div class="header-label">Estimating Tool</div>
+    <div class="header-top">
+      <img class="header-logo" src="data:image/webp;base64,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" alt="GA Logo">
+      <div class="header-label">Estimating Tool</div>
+    </div>
     <h1>Production<br><em>Pipeline</em></h1>
     <p class="header-sub">Upload your estimates workbook to compute accepted items and the total remaining pipeline value.</p>
   </div>
@@ -735,7 +757,7 @@ function exportPDF() {
   doc.text('Production Pipeline Total:', 40, 72);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(14);
-  doc.setTextColor(80, 160, 40);
+  doc.setTextColor(74, 106, 191);
   doc.text(fmtCurrency(query2Total), 200, 72);
   doc.setTextColor(0, 0, 0);
 
@@ -772,7 +794,7 @@ function exportPDF() {
     startY: 110,
     margin: { left: 40, right: 40 },
     styles: { fontSize: 7.5, cellPadding: 4 },
-    headStyles: { fillColor: [30, 40, 30], textColor: [184, 240, 122], fontStyle: 'bold' },
+    headStyles: { fillColor: [102, 135, 225], textColor: [255, 255, 255], fontStyle: 'bold' },
     alternateRowStyles: { fillColor: [245, 248, 245] },
     columnStyles: {
       4: { halign: 'right' },
