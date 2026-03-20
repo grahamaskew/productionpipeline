@@ -410,32 +410,6 @@
     border-top: 1px solid var(--border);
     margin: 36px 0;
   }
-
-  /* File info */
-  .file-info {
-    display: none;
-    align-items: center;
-    gap: 12px;
-    padding: 12px 16px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    margin-bottom: 24px;
-    font-size: 11px;
-    color: var(--text-muted);
-  }
-
-  .file-info.show { display: flex; }
-
-  .file-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--accent);
-    flex-shrink: 0;
-  }
-
-  .file-name { color: var(--text); font-weight: 500; }
 </style>
 </head>
 <body>
@@ -449,12 +423,6 @@
     </div>
     <h1>Production<br><em>Pipeline</em></h1>
     <p class="header-sub">Upload your estimates workbook to compute accepted items and the total remaining pipeline value.</p>
-  </div>
-
-  <!-- File info bar -->
-  <div class="file-info" id="fileInfo">
-    <div class="file-dot"></div>
-    <span>Source file:&nbsp;<span class="file-name" id="fileName"></span></span>
   </div>
 
   <!-- Upload zone -->
@@ -476,16 +444,13 @@
   <!-- Results -->
   <div class="results" id="results">
 
-    <!-- Query 2 output: Pipeline total -->
+    <!-- Pipeline total -->
     <div class="pipeline-total">
       <div>
         <div class="total-label">Production Pipeline Total</div>
         <div class="total-value" id="pipelineTotal">—</div>
       </div>
-      <div class="total-meta">
-        <strong>Query 2 output</strong>
-        Sum of remaining accepted amounts
-      </div>
+
     </div>
 
     <!-- Query 1 output: detail table -->
@@ -549,9 +514,6 @@ function handleFile(file) {
   showError('');
   show('processing');
   hide('results');
-
-  document.getElementById('fileName').textContent = file.name;
-  document.getElementById('fileInfo').classList.add('show');
 
   const reader = new FileReader();
   reader.onload = e => {
@@ -766,7 +728,6 @@ function exportPDF() {
   doc.setFontSize(9);
   doc.setTextColor(120, 120, 120);
   doc.text('Generated: ' + new Date().toLocaleDateString('en-US', { dateStyle: 'long' }), pageW - 40, 48, { align: 'right' });
-  doc.text('Source: ' + (document.getElementById('fileName').textContent || ''), pageW - 40, 60, { align: 'right' });
   doc.setTextColor(0, 0, 0);
 
   // Subtitle
@@ -824,10 +785,6 @@ function exportCSV() {
     }).join(','));
   });
 
-  // Append totals section
-  lines.push('');
-  lines.push('"Production Pipeline Total",' + query2Total.toFixed(2));
-
   const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -842,7 +799,6 @@ function reset() {
   query1Data = [];
   query2Total = 0;
   fileInput.value = '';
-  document.getElementById('fileInfo').classList.remove('show');
   document.getElementById('tableHead').innerHTML = '';
   document.getElementById('tableBody').innerHTML = '';
   document.getElementById('pipelineTotal').textContent = '—';
