@@ -410,6 +410,108 @@
     border-top: 1px solid var(--border);
     margin: 36px 0;
   }
+
+  /* Row picker */
+  .row-picker {
+    display: none;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 32px;
+    margin-bottom: 24px;
+    animation: fadeUp 0.3s ease both;
+  }
+
+  .row-picker-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--accent-light);
+    border: 1px solid var(--border);
+    color: var(--accent);
+    font-size: 18px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 14px;
+  }
+
+  .row-picker-title {
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+
+  .row-picker-hint {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.6;
+    margin-bottom: 20px;
+    max-width: 560px;
+  }
+
+  .row-picker-hint em {
+    color: var(--accent);
+    font-style: normal;
+    font-weight: 500;
+  }
+
+  .row-picker-list {
+    max-height: 260px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 20px;
+    background: var(--bg);
+  }
+
+  .row-picker-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--text-dim);
+    transition: background 0.12s ease;
+  }
+
+  .row-picker-item:last-child { border-bottom: none; }
+
+  .row-picker-item:hover { background: var(--accent-light); color: var(--text); }
+
+  .row-picker-item.selected {
+    background: var(--accent-light);
+    color: var(--text);
+  }
+
+  .row-picker-item input[type="radio"] {
+    accent-color: var(--accent);
+    flex-shrink: 0;
+  }
+
+  .row-picker-rownum {
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    min-width: 48px;
+  }
+
+  .row-picker-preview {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .row-picker-actions {
+    display: flex;
+    gap: 12px;
+  }
+
 </style>
 </head>
 <body>
@@ -429,11 +531,23 @@
   <div class="upload-zone" id="uploadZone">
     <div class="upload-icon">↑</div>
     <div class="upload-title">Drop your workbook here</div>
-    <p class="upload-hint">or <span>click to browse</span> &nbsp;·&nbsp; .xlsx / .xls accepted</p>
-    <input type="file" id="fileInput" accept=".xlsx,.xls">
+    <p class="upload-hint">or <span>click to browse</span> &nbsp;·&nbsp; .xlsx / .xls / .csv accepted</p>
+    <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
   </div>
 
   <div class="error-box" id="errorBox"></div>
+
+  <!-- Row picker (shown when header row cannot be auto-detected) -->
+  <div class="row-picker" id="rowPicker">
+    <div class="row-picker-icon">?</div>
+    <div class="row-picker-title">Select the header row</div>
+    <p class="row-picker-hint">The app could not automatically detect the column headers (<em>Status</em> and <em>Remaining Amount</em>). Select the row below that contains your column headers.</p>
+    <div class="row-picker-list" id="rowPickerList"></div>
+    <div class="row-picker-actions">
+      <button class="btn btn-primary" onclick="confirmHeaderRow()">Confirm</button>
+      <button class="btn btn-reset" onclick="reset()">↺ &nbsp;Cancel</button>
+    </div>
+  </div>
 
   <!-- Processing -->
   <div class="processing" id="processing">
@@ -510,89 +624,159 @@ uploadZone.addEventListener('drop', e => {
 });
 
 // ─── File handler ─────────────────────────────────────────
+let pendingAllRows = null;   // raw row arrays held for manual header selection
+let selectedHeaderIdx = null;
+
 function handleFile(file) {
   showError('');
   show('processing');
   hide('results');
+  hide('rowPicker');
 
   const reader = new FileReader();
   reader.onload = e => {
     try {
       const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
-      runPipeline(wb);
+      // Read first relevant sheet as raw arrays (header:1) so we can scan every row
+      const sheetName = detectSheet(wb);
+      const ws = wb.Sheets[sheetName];
+      const allRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: false, dateNF: 'yyyy-mm-dd' });
+      hide('processing');
+      processRawRows(allRows);
     } catch(err) {
-      showError('Could not read the file. Make sure it is a valid .xlsx workbook.\n' + err.message);
+      showError('Could not read the file. Make sure it is a valid .xlsx, .xls, or .csv file.\n' + err.message);
       hide('processing');
     }
   };
   reader.readAsArrayBuffer(file);
 }
 
-// ─── Pipeline ─────────────────────────────────────────────
-function runPipeline(wb) {
-
-  // Find the worksheet containing the named table "EstimatesandProgressInvoicing"
-  let targetWs = null;
-  let tableRange = null;
-
+// ─── Find best sheet ──────────────────────────────────────
+function detectSheet(wb) {
+  // Prefer the named table sheet, then name-match, then first sheet
   for (const sheetName of wb.SheetNames) {
     const ws = wb.Sheets[sheetName];
     const tables = ws['!tables'];
-    if (tables) {
-      for (const tbl of tables) {
-        if (tbl.name === 'EstimatesandProgressInvoicing') {
-          targetWs = ws;
-          tableRange = tbl.ref || tbl.tableRange || null;
-          break;
-        }
-      }
-    }
-    if (targetWs) break;
+    if (tables && tables.some(t => t.name === 'EstimatesandProgressInvoicing')) return sheetName;
   }
+  return wb.SheetNames.find(n =>
+    n.replace(/\s/g,'').toLowerCase().includes('estimate') ||
+    n.replace(/\s/g,'').toLowerCase().includes('invoic')
+  ) || wb.SheetNames[0];
+}
 
-  // Fallback: find sheet by name similarity
-  if (!targetWs) {
-    const fallbackName = wb.SheetNames.find(n =>
-      n.replace(/\s/g,'').toLowerCase().includes('estimate') ||
-      n.replace(/\s/g,'').toLowerCase().includes('invoic')
-    ) || wb.SheetNames[0];
-    targetWs = wb.Sheets[fallbackName];
+// ─── Scan rows for header, or prompt user ─────────────────
+function processRawRows(allRows) {
+  pendingAllRows = allRows;
+  const headerIdx = findHeaderRow(allRows);
+  if (headerIdx !== -1) {
+    buildPipelineFromRows(allRows, headerIdx);
+  } else {
+    showRowPicker(allRows);
   }
+}
 
-  if (!targetWs) {
-    showError('No data found. Make sure the workbook contains the table "EstimatesandProgressInvoicing".');
-    hide('processing');
+// ─── Auto-detect header row ───────────────────────────────
+// Requires both STATUS and REMAINING AMOUNT (case-insensitive) in the same row
+function findHeaderRow(allRows) {
+  for (let i = 0; i < allRows.length; i++) {
+    const row = allRows[i].map(c => String(c || '').trim().toLowerCase());
+    const hasStatus  = row.some(c => c === 'status');
+    const hasRemaining = row.some(c => c.replace(/\s+/g,' ') === 'remaining amount');
+    if (hasStatus && hasRemaining) return i;
+  }
+  return -1;
+}
+
+// ─── Show manual row picker ───────────────────────────────
+function showRowPicker(allRows) {
+  hide('uploadZone');
+  const list = document.getElementById('rowPickerList');
+  list.innerHTML = '';
+  selectedHeaderIdx = null;
+
+  // Show up to first 20 non-empty rows as candidates
+  const candidates = allRows
+    .map((row, i) => ({ row, i }))
+    .filter(({ row }) => row.some(c => c !== null && c !== ''))
+    .slice(0, 20);
+
+  candidates.forEach(({ row, i }) => {
+    const item = document.createElement('div');
+    item.className = 'row-picker-item';
+    item.dataset.idx = i;
+
+    const radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.name = 'headerRow';
+    radio.value = i;
+    radio.addEventListener('change', () => {
+      document.querySelectorAll('.row-picker-item').forEach(el => el.classList.remove('selected'));
+      item.classList.add('selected');
+      selectedHeaderIdx = i;
+    });
+
+    const rownum = document.createElement('span');
+    rownum.className = 'row-picker-rownum';
+    rownum.textContent = 'Row ' + (i + 1);
+
+    const preview = document.createElement('span');
+    preview.className = 'row-picker-preview';
+    preview.textContent = row.filter(c => c !== null && c !== '').slice(0, 8).join('  ·  ');
+
+    item.appendChild(radio);
+    item.appendChild(rownum);
+    item.appendChild(preview);
+    item.addEventListener('click', () => { radio.checked = true; radio.dispatchEvent(new Event('change')); });
+    list.appendChild(item);
+  });
+
+  document.getElementById('rowPicker').style.display = 'block';
+}
+
+// ─── Confirm manual header selection ─────────────────────
+function confirmHeaderRow() {
+  if (selectedHeaderIdx === null) {
+    showError('Please select a header row before continuing.');
     return;
   }
+  showError('');
+  document.getElementById('rowPicker').style.display = 'none';
+  show('processing');
+  buildPipelineFromRows(pendingAllRows, selectedHeaderIdx);
+}
 
-  // Read sheet as key-value rows using SheetJS default mode
-  const sheetOpts = { defval: null, raw: false, dateNF: 'yyyy-mm-dd' };
-  let rawRows = tableRange
-    ? XLSX.utils.sheet_to_json(targetWs, Object.assign({}, sheetOpts, { range: tableRange }))
-    : XLSX.utils.sheet_to_json(targetWs, sheetOpts);
+// ─── Pipeline (called with raw row arrays + confirmed header index) ──
+function buildPipelineFromRows(allRows, headerIdx) {
+
+  // Extract header row and map to column names
+  const headerRow = allRows[headerIdx];
+
+  // Build colMap: index → canonical column name
+  // Column 0 has a blank or "Column 1" header → rename to "Name"
+  const colMap = headerRow.map((h, i) => {
+    if (i === 0) return 'Name';
+    return (h !== null && h !== undefined && String(h).trim() !== '')
+      ? String(h).trim()
+      : `__col${i}`;
+  });
+
+  // Slice off all rows above and including the header row; convert to objects
+  let rawRows = allRows.slice(headerIdx + 1)
+    .filter(rowArr => rowArr.some(c => c !== null && c !== ''))  // skip blank rows
+    .map(rowArr => {
+      const obj = {};
+      colMap.forEach((col, i) => { obj[col] = rowArr[i] !== undefined ? rowArr[i] : null; });
+      return obj;
+    });
 
   if (!rawRows || rawRows.length === 0) {
-    showError('No data found in the table. Please check the workbook.');
+    showError('No data rows found after the header row. Please check the file.');
     hide('processing');
     return;
   }
 
   // ── Query 1 transformations ──────────────────────────────
-
-  // 1. Rename first column → "Name".
-  //    Excel shows the header as "Column 1" (with a space); Power Query calls it "Column1".
-  //    Also guard against SheetJS __EMPTY variants for truly blank headers.
-  rawRows = rawRows.map(row => {
-    const r = Object.assign({}, row);
-    for (const alias of ['Column 1', 'Column1', '__EMPTY', '__EMPTY_1']) {
-      if (alias in r) {
-        r['Name'] = r[alias];
-        delete r[alias];
-        break;
-      }
-    }
-    return r;
-  });
 
   // 2. Fill down "Name" — value appears once per group, blank on rows below
   let lastName = null;
@@ -798,7 +982,10 @@ function exportCSV() {
 function reset() {
   query1Data = [];
   query2Total = 0;
+  pendingAllRows = null;
+  selectedHeaderIdx = null;
   fileInput.value = '';
+  document.getElementById('rowPicker').style.display = 'none';
   document.getElementById('tableHead').innerHTML = '';
   document.getElementById('tableBody').innerHTML = '';
   document.getElementById('pipelineTotal').textContent = '—';
