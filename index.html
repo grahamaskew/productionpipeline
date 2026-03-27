@@ -512,6 +512,79 @@
     gap: 12px;
   }
 
+
+  /* Filter warning modal */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(26, 31, 54, 0.45);
+    backdrop-filter: blur(3px);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.2s ease both;
+  }
+
+  .modal-overlay.show {
+    display: flex;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 36px 40px;
+    max-width: 460px;
+    width: 90%;
+    box-shadow: 0 16px 48px rgba(26,31,54,0.18);
+    animation: slideUp 0.25s ease both;
+  }
+
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .modal-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: rgba(240, 180, 60, 0.12);
+    border: 1px solid rgba(240, 180, 60, 0.35);
+    color: #c8900a;
+    font-size: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 16px;
+  }
+
+  .modal-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 10px;
+  }
+
+  .modal-body {
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.65;
+    margin-bottom: 24px;
+  }
+
+  .modal-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
 </style>
 </head>
 <body>
@@ -546,6 +619,19 @@
     <div class="row-picker-actions">
       <button class="btn btn-primary" onclick="confirmHeaderRow()">Confirm</button>
       <button class="btn btn-reset" onclick="reset()">↺ &nbsp;Cancel</button>
+    </div>
+  </div>
+
+  <!-- Filter warning modal -->
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal">
+      <div class="modal-icon">⚠</div>
+      <div class="modal-title">Filters Detected</div>
+      <p class="modal-body">The uploaded file contains active filters. Hidden rows will be excluded from the results.<br><br>To include all rows, remove the filters in Excel before uploading.</p>
+      <div class="modal-actions">
+        <button class="btn btn-primary" onclick="acknowledgeFilterWarning()">Continue</button>
+        <button class="btn btn-reset" onclick="reset()">↺ &nbsp;Cancel &amp; re-upload</button>
+      </div>
     </div>
   </div>
 
@@ -626,6 +712,8 @@ uploadZone.addEventListener('drop', e => {
 // ─── File handler ─────────────────────────────────────────
 let pendingAllRows = null;   // raw row arrays held for manual header selection
 let selectedHeaderIdx = null;
+let pendingHeaderIdx = null;   // held while filter warning modal is shown
+let hasHiddenRows = false;     // tracks whether filters were detected
 
 function handleFile(file) {
   showError('');
@@ -640,9 +728,14 @@ function handleFile(file) {
       // Read first relevant sheet as raw arrays (header:1) so we can scan every row
       const sheetName = detectSheet(wb);
       const ws = wb.Sheets[sheetName];
+      // Detect hidden rows from SheetJS !rows metadata (XLSX/XLS only)
+      const rowMeta = ws['!rows'] || [];
+      hasHiddenRows = rowMeta.some(r => r && r.hidden === true);
       const allRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: false, dateNF: 'yyyy-mm-dd' });
+      // Remove rows marked as hidden before any processing
+      const visibleRows = allRows.filter((_, i) => !(rowMeta[i] && rowMeta[i].hidden === true));
       hide('processing');
-      processRawRows(allRows);
+      processRawRows(visibleRows, hasHiddenRows);
     } catch(err) {
       showError('Could not read the file. Make sure it is a valid .xlsx, .xls, or .csv file.\n' + err.message);
       hide('processing');
@@ -666,14 +759,35 @@ function detectSheet(wb) {
 }
 
 // ─── Scan rows for header, or prompt user ─────────────────
-function processRawRows(allRows) {
+function processRawRows(allRows, filtersDetected) {
   pendingAllRows = allRows;
   const headerIdx = findHeaderRow(allRows);
   if (headerIdx !== -1) {
-    buildPipelineFromRows(allRows, headerIdx);
+    if (filtersDetected) {
+      // Hold results — show modal first
+      pendingHeaderIdx = headerIdx;
+      showFilterWarning();
+    } else {
+      buildPipelineFromRows(allRows, headerIdx);
+    }
   } else {
+    // No header found — show row picker (filter warning skipped;
+    // user is already in a manual flow)
+    if (filtersDetected) hasHiddenRows = true;
     showRowPicker(allRows);
   }
+}
+
+// ─── Show filter warning modal ────────────────────────────
+function showFilterWarning() {
+  document.getElementById('modalOverlay').classList.add('show');
+}
+
+// ─── User acknowledges filter warning ─────────────────────
+function acknowledgeFilterWarning() {
+  document.getElementById('modalOverlay').classList.remove('show');
+  buildPipelineFromRows(pendingAllRows, pendingHeaderIdx);
+  pendingHeaderIdx = null;
 }
 
 // ─── Auto-detect header row ───────────────────────────────
@@ -742,8 +856,14 @@ function confirmHeaderRow() {
   }
   showError('');
   document.getElementById('rowPicker').style.display = 'none';
-  show('processing');
-  buildPipelineFromRows(pendingAllRows, selectedHeaderIdx);
+  if (hasHiddenRows) {
+    // Filters were detected — show modal before proceeding
+    pendingHeaderIdx = selectedHeaderIdx;
+    showFilterWarning();
+  } else {
+    show('processing');
+    buildPipelineFromRows(pendingAllRows, selectedHeaderIdx);
+  }
 }
 
 // ─── Pipeline (called with raw row arrays + confirmed header index) ──
@@ -801,8 +921,26 @@ function buildPipelineFromRows(allRows, headerIdx) {
   // 4. Filter: Status = "Accepted"
   rawRows = rawRows.filter(row => row['Status'] === 'Accepted');
 
-  // 5. Filter: Memo/Description does NOT contain "RFP"
-  rawRows = rawRows.filter(row => !String(row['Memo/Description'] || '').includes('RFP'));
+  // 5. Filter: exclude rows where ANY column from position 2 onwards contains
+  //    RFP-related text (case-insensitive, partial match).
+  //    Columns at positions 0 (Name) and 1 (Num) are intentionally skipped.
+  const RFP_PATTERNS = [
+    /rfp/i,
+    /request\s+for\s+pay/i,
+    /req\.?\s+for\s+pay/i,
+    /r\.f\.p/i,
+  ];
+  // Derive the column names to search: all except the first two in colMap order
+  const colsToSearch = colMap.slice(2);
+
+  function rowContainsRFP(row) {
+    return colsToSearch.some(col => {
+      const val = String(row[col] || '').trim();
+      return RFP_PATTERNS.some(pattern => pattern.test(val));
+    });
+  }
+
+  rawRows = rawRows.filter(row => !rowContainsRFP(row));
 
   // 6. Parse Remaining Amount as number (Currency)
   rawRows = rawRows.map(row => ({
@@ -984,6 +1122,9 @@ function reset() {
   query2Total = 0;
   pendingAllRows = null;
   selectedHeaderIdx = null;
+  pendingHeaderIdx = null;
+  hasHiddenRows = false;
+  document.getElementById('modalOverlay').classList.remove('show');
   fileInput.value = '';
   document.getElementById('rowPicker').style.display = 'none';
   document.getElementById('tableHead').innerHTML = '';
