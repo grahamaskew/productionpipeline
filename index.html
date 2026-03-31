@@ -1116,13 +1116,14 @@ function renderResults() {
   // Pipeline total
   document.getElementById('pipelineTotal').textContent = fmtCurrency(query2Total);
 
-  // Table columns — define display order
-  const cols = ['Name','Project Label','Num','Date','Status','Amount','Balance','Invoiced Amount','% Invoiced','Remaining Amount','Memo/Description'];
+  // Table columns — explicit per source to guarantee all mapped cols appear
+  const cols = sourceType === 'wequote'
+    ? ['Name','Project Label','Num','Status','Amount','Invoiced Amount','% Invoiced','Remaining Amount','Memo/Description']
+    : ['Name','Num','Date','Status','Amount','Balance','Invoiced Amount','% Invoiced','Remaining Amount','Memo/Description'];
 
-  // Filter to only cols that exist in data
-  const existingCols = query1Data.length > 0
-    ? cols.filter(c => c in query1Data[0])
-    : cols;
+  const existingCols = sourceType === 'wequote'
+    ? cols
+    : (query1Data.length > 0 ? cols.filter(c => c in query1Data[0]) : cols);
 
   // Head
   document.getElementById('tableHead').innerHTML =
@@ -1191,9 +1192,18 @@ function exportPDF() {
   doc.setFont('helvetica', 'bold');
   doc.text('Accepted Estimates Detail', 40, 100);
 
-  // Build table data
-  const cols = ['Name','Project Label','Num','Date','Status','Amount','Balance','Invoiced Amount','% Invoiced','Remaining Amount','Memo/Description'];
-  const existingCols = query1Data.length > 0 ? cols.filter(c => c in query1Data[0]) : cols;
+  // Build table data — explicit per source
+  const cols = sourceType === 'wequote'
+    ? ['Name','Project Label','Num','Status','Amount','Invoiced Amount','% Invoiced','Remaining Amount','Memo/Description']
+    : ['Name','Num','Date','Status','Amount','Balance','Invoiced Amount','% Invoiced','Remaining Amount','Memo/Description'];
+  const existingCols = sourceType === 'wequote'
+    ? cols
+    : (query1Data.length > 0 ? cols.filter(c => c in query1Data[0]) : cols);
+
+  // Right-align numeric columns by index (differs per source)
+  const rightAlignCols = sourceType === 'wequote'
+    ? { 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' } }
+    : { 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' }, 8: { halign: 'right' } };
 
   const head = [existingCols];
   const body = query1Data.map(row =>
@@ -1213,13 +1223,7 @@ function exportPDF() {
     styles: { fontSize: 7.5, cellPadding: 4 },
     headStyles: { fillColor: [102, 135, 225], textColor: [255, 255, 255], fontStyle: 'bold' },
     alternateRowStyles: { fillColor: [245, 248, 245] },
-    columnStyles: {
-      4: { halign: 'right' },
-      5: { halign: 'right' },
-      6: { halign: 'right' },
-      7: { halign: 'right' },
-      8: { halign: 'right' },
-    }
+    columnStyles: rightAlignCols,
   });
 
   doc.save('production-pipeline.pdf');
@@ -1227,8 +1231,12 @@ function exportPDF() {
 
 // ─── Export CSV ───────────────────────────────────────────
 function exportCSV() {
-  const cols = ['Name','Project Label','Num','Date','Status','Amount','Balance','Invoiced Amount','% Invoiced','Remaining Amount','Memo/Description'];
-  const existingCols = query1Data.length > 0 ? cols.filter(c => c in query1Data[0]) : cols;
+  const cols = sourceType === 'wequote'
+    ? ['Name','Project Label','Num','Status','Amount','Invoiced Amount','% Invoiced','Remaining Amount','Memo/Description']
+    : ['Name','Num','Date','Status','Amount','Balance','Invoiced Amount','% Invoiced','Remaining Amount','Memo/Description'];
+  const existingCols = sourceType === 'wequote'
+    ? cols
+    : (query1Data.length > 0 ? cols.filter(c => c in query1Data[0]) : cols);
 
   const lines = [existingCols.join(',')];
   query1Data.forEach(row => {
