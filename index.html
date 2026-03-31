@@ -585,6 +585,47 @@
     flex-wrap: wrap;
   }
 
+
+  /* Source selection modal */
+  .source-options {
+    display: flex;
+    gap: 12px;
+    margin-top: 4px;
+  }
+
+  .source-btn {
+    flex: 1;
+    padding: 20px 16px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.15s ease;
+    font-family: 'Geist', sans-serif;
+  }
+
+  .source-btn:hover {
+    border-color: var(--accent);
+    background: var(--accent-light);
+  }
+
+  .source-btn-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+
+  .source-btn:hover .source-btn-name {
+    color: var(--accent);
+  }
+
+  .source-btn-desc {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
 </style>
 </head>
 <body>
@@ -601,7 +642,7 @@
   </div>
 
   <!-- Upload zone -->
-  <div class="upload-zone" id="uploadZone">
+  <div class="upload-zone" id="uploadZone" style="display:none">
     <div class="upload-icon">↑</div>
     <div class="upload-title">Drop your workbook here</div>
     <p class="upload-hint">or <span>click to browse</span> &nbsp;·&nbsp; .xlsx / .xls / .csv accepted</p>
@@ -619,6 +660,22 @@
     <div class="row-picker-actions">
       <button class="btn btn-primary" onclick="confirmHeaderRow()">Confirm</button>
       <button class="btn btn-reset" onclick="reset()">↺ &nbsp;Cancel</button>
+    </div>
+  </div>
+
+  <!-- Source selection modal (shown on page load) -->
+  <div class="modal-overlay show" id="sourceModalOverlay">
+    <div class="modal">
+      <div class="modal-title">Select Data Source</div>
+      <p class="modal-body">Choose the system your estimates workbook was exported from.</p>
+      <div class="source-options">
+        <button class="source-btn" onclick="selectSource('quickbooks')">
+          <div class="source-btn-name">QuickBooks</div>
+        </button>
+        <button class="source-btn" onclick="selectSource('wequote')">
+          <div class="source-btn-name">WeQuote</div>
+        </button>
+      </div>
     </div>
   </div>
 
@@ -680,6 +737,7 @@
 
 <script>
 // ─── State ───────────────────────────────────────────────
+let sourceType  = null;  // 'quickbooks' or 'wequote'
 let query1Data = [];   // rows from Query 1
 let query2Total = 0;   // sum from Query 2
 
@@ -790,14 +848,28 @@ function acknowledgeFilterWarning() {
   pendingHeaderIdx = null;
 }
 
+// ─── Source selection ─────────────────────────────────────
+function selectSource(type) {
+  sourceType = type;
+  document.getElementById('sourceModalOverlay').classList.remove('show');
+  show('uploadZone');
+}
+
 // ─── Auto-detect header row ───────────────────────────────
-// Requires both STATUS and REMAINING AMOUNT (case-insensitive) in the same row
+// QuickBooks: requires STATUS + REMAINING AMOUNT
+// WeQuote:    requires QUOTE STATUS + TOTAL SELL NO TAX
 function findHeaderRow(allRows) {
   for (let i = 0; i < allRows.length; i++) {
     const row = allRows[i].map(c => String(c || '').trim().toLowerCase());
-    const hasStatus  = row.some(c => c === 'status');
-    const hasRemaining = row.some(c => c.replace(/\s+/g,' ') === 'remaining amount');
-    if (hasStatus && hasRemaining) return i;
+    if (sourceType === 'wequote') {
+      const hasQuoteStatus = row.some(c => c.replace(/\s+/g,' ') === 'quote status');
+      const hasTotalSell   = row.some(c => c.replace(/\s+/g,' ') === 'total sell no tax');
+      if (hasQuoteStatus && hasTotalSell) return i;
+    } else {
+      const hasStatus    = row.some(c => c === 'status');
+      const hasRemaining = row.some(c => c.replace(/\s+/g,' ') === 'remaining amount');
+      if (hasStatus && hasRemaining) return i;
+    }
   }
   return -1;
 }
@@ -808,6 +880,14 @@ function showRowPicker(allRows) {
   const list = document.getElementById('rowPickerList');
   list.innerHTML = '';
   selectedHeaderIdx = null;
+
+  // Update hint text to reflect the expected columns for the active source
+  const hint = document.querySelector('.row-picker-hint');
+  if (sourceType === 'wequote') {
+    hint.innerHTML = 'The app could not automatically detect the column headers (<em>Quote Status</em> and <em>Total Sell NO Tax</em>). Select the row below that contains your column headers.';
+  } else {
+    hint.innerHTML = 'The app could not automatically detect the column headers (<em>Status</em> and <em>Remaining Amount</em>). Select the row below that contains your column headers.';
+  }
 
   // Show up to first 20 non-empty rows as candidates
   const candidates = allRows
@@ -868,6 +948,10 @@ function confirmHeaderRow() {
 
 // ─── Pipeline (called with raw row arrays + confirmed header index) ──
 function buildPipelineFromRows(allRows, headerIdx) {
+  if (sourceType === 'wequote') {
+    buildWeQuotePipeline(allRows, headerIdx);
+    return;
+  }
 
   // Extract header row and map to column names
   const headerRow = allRows[headerIdx];
@@ -959,6 +1043,60 @@ function buildPipelineFromRows(allRows, headerIdx) {
   query2Total = query1Data.reduce((sum, row) => sum + (row['Remaining Amount'] || 0), 0);
 
   // ── Render ───────────────────────────────────────────────
+  renderResults();
+}
+
+// ─── WeQuote pipeline ─────────────────────────────────────
+function buildWeQuotePipeline(allRows, headerIdx) {
+  const headerRow = allRows[headerIdx];
+
+  // Build colMap from actual header names
+  const colMap = headerRow.map((h, i) =>
+    (h !== null && h !== undefined && String(h).trim() !== '')
+      ? String(h).trim()
+      : `__col${i}`
+  );
+
+  // Slice data rows, skip blanks, convert to objects
+  let rawRows = allRows.slice(headerIdx + 1)
+    .filter(rowArr => rowArr.some(c => c !== null && c !== ''))
+    .map(rowArr => {
+      const obj = {};
+      colMap.forEach((col, i) => { obj[col] = rowArr[i] !== undefined ? rowArr[i] : null; });
+      return obj;
+    });
+
+  if (!rawRows || rawRows.length === 0) {
+    showError('No data rows found after the header row. Please check the file.');
+    hide('processing');
+    return;
+  }
+
+  // Filter: Quote Status = "accepted" (case-insensitive)
+  rawRows = rawRows.filter(row =>
+    String(row['Quote Status'] || '').trim().toLowerCase() === 'accepted'
+  );
+
+  // Remap to canonical column names and parse numeric fields
+  rawRows = rawRows.map(row => {
+    const amount = parseCurrency(row['Total Sell NO Tax']);
+    const paid   = parseCurrency(row['Paid']);
+    return {
+      'Name':             String(row['Project Name'] || '').trim(),
+      'Num':              row['Quote Number'] !== null && row['Quote Number'] !== undefined ? String(row['Quote Number']).trim() : '',
+      'Date':             row['Last Invoice Date'] !== null && row['Last Invoice Date'] !== undefined ? row['Last Invoice Date'] : '',
+      'Status':           String(row['Quote Status'] || '').trim(),
+      'Amount':           amount,
+      'Invoiced Amount':  paid,
+      '% Invoiced':       amount !== 0 ? paid / amount : 0,
+      'Remaining Amount': parseCurrency(row['Not Invoiced']),
+      'Memo/Description': String(row['Quote Name'] || '').trim(),
+    };
+  });
+
+  query1Data  = rawRows;
+  query2Total = rawRows.reduce((sum, row) => sum + (row['Remaining Amount'] || 0), 0);
+
   renderResults();
 }
 
@@ -1133,7 +1271,9 @@ function reset() {
   showError('');
   hide('results');
   hide('processing');
-  show('uploadZone');
+  hide('uploadZone');
+  sourceType = null;
+  document.getElementById('sourceModalOverlay').classList.add('show');
 }
 
 // ─── UI helpers ───────────────────────────────────────────
