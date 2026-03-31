@@ -1079,12 +1079,11 @@ function buildWeQuotePipeline(allRows, headerIdx) {
 
   // Remap to canonical column names and parse numeric fields
   rawRows = rawRows.map(row => {
-    const amount = parseCurrency(row['Total Sell NO Tax']);
+    const amount = parseCurrency(row['Total Sell No TAX']);
     const paid   = parseCurrency(row['Paid']);
     return {
       'Name':             String(row['Project Name'] || '').trim(),
       'Num':              row['Quote Number'] !== null && row['Quote Number'] !== undefined ? String(row['Quote Number']).trim() : '',
-      'Date':             row['Last Invoice Date'] !== null && row['Last Invoice Date'] !== undefined ? row['Last Invoice Date'] : '',
       'Status':           String(row['Quote Status'] || '').trim(),
       'Amount':           amount,
       'Invoiced Amount':  paid,
