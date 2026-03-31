@@ -1079,6 +1079,7 @@ function buildWeQuotePipeline(allRows, headerIdx) {
     const paid   = parseCurrency(row['Paid']);
     return {
       'Name':             String(row['Project Name'] || '').trim(),
+      'Project Label':    String(row['Project Labels'] || '').trim(),
       'Num':              row['Quote Number'] !== null && row['Quote Number'] !== undefined ? String(row['Quote Number']).trim() : '',
       'Status':           String(row['Quote Status'] || '').trim(),
       'Amount':           amount,
@@ -1116,7 +1117,7 @@ function renderResults() {
   document.getElementById('pipelineTotal').textContent = fmtCurrency(query2Total);
 
   // Table columns — define display order
-  const cols = ['Name','Num','Date','Status','Amount','Balance','Invoiced Amount','% Invoiced','Remaining Amount','Memo/Description'];
+  const cols = ['Name','Project Label','Num','Date','Status','Amount','Balance','Invoiced Amount','% Invoiced','Remaining Amount','Memo/Description'];
 
   // Filter to only cols that exist in data
   const existingCols = query1Data.length > 0
@@ -1191,7 +1192,7 @@ function exportPDF() {
   doc.text('Accepted Estimates Detail', 40, 100);
 
   // Build table data
-  const cols = ['Name','Num','Date','Status','Amount','Balance','Invoiced Amount','% Invoiced','Remaining Amount','Memo/Description'];
+  const cols = ['Name','Project Label','Num','Date','Status','Amount','Balance','Invoiced Amount','% Invoiced','Remaining Amount','Memo/Description'];
   const existingCols = query1Data.length > 0 ? cols.filter(c => c in query1Data[0]) : cols;
 
   const head = [existingCols];
@@ -1226,7 +1227,7 @@ function exportPDF() {
 
 // ─── Export CSV ───────────────────────────────────────────
 function exportCSV() {
-  const cols = ['Name','Num','Date','Status','Amount','Balance','Invoiced Amount','% Invoiced','Remaining Amount','Memo/Description'];
+  const cols = ['Name','Project Label','Num','Date','Status','Amount','Balance','Invoiced Amount','% Invoiced','Remaining Amount','Memo/Description'];
   const existingCols = query1Data.length > 0 ? cols.filter(c => c in query1Data[0]) : cols;
 
   const lines = [existingCols.join(',')];
