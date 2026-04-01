@@ -961,6 +961,8 @@ function buildPipelineFromRows(allRows, headerIdx) {
       : `__col${i}`;
   });
 
+  const hasMemoCol = colMap.includes('Memo/Description');
+
   // Slice off all rows above and including the header row; convert to objects
   let rawRows = allRows.slice(headerIdx + 1)
     .filter(rowArr => rowArr.some(c => c !== null && c !== ''))  // skip blank rows
@@ -995,7 +997,7 @@ function buildPipelineFromRows(allRows, headerIdx) {
     ...row,
     'Num':    (row['Num']    === null || row['Num']    === undefined) ? '' : row['Num'],
     'Status': (row['Status'] === null || row['Status'] === undefined) ? '' : row['Status'],
-    'Memo/Description': (row['Memo/Description'] === null || row['Memo/Description'] === undefined) ? '-' : row['Memo/Description'],
+    ...(hasMemoCol ? { 'Memo/Description': (row['Memo/Description'] === null || row['Memo/Description'] === undefined) ? '-' : row['Memo/Description'] } : {}),
   }));
 
   // 4. Filter: Status = "Accepted"
@@ -1010,8 +1012,8 @@ function buildPipelineFromRows(allRows, headerIdx) {
     /req\.?\s+for\s+pay/i,
     /r\.f\.p/i,
   ];
-  // Derive the column names to search: all except the first two in colMap order
-  const colsToSearch = colMap.slice(2);
+  // Derive the column names to search: all except Name (index 0); Num (index 1) is included
+  const colsToSearch = colMap.slice(1);
 
   function rowContainsRFP(row) {
     return colsToSearch.some(col => {
@@ -1029,7 +1031,7 @@ function buildPipelineFromRows(allRows, headerIdx) {
     'Amount':           parseCurrency(row['Amount']),
     'Balance':          parseCurrency(row['Balance']),
     'Invoiced Amount':  parseCurrency(row['Invoiced Amount']),
-    '% Invoiced':       parseFloat(row['% Invoiced']) || 0,
+    '% Invoiced':       parsePct(row['% Invoiced']),
   }));
 
   query1Data = rawRows;
@@ -1101,6 +1103,16 @@ function parseCurrency(val) {
   if (val === null || val === undefined || val === '') return 0;
   if (typeof val === 'number') return val;
   return parseFloat(String(val).replace(/[$,\s]/g, '')) || 0;
+}
+
+function parsePct(val) {
+  if (val === null || val === undefined || val === '') return 0;
+  const str = String(val).trim();
+  // If the raw value includes a '%' sign it is already a percentage — divide by 100
+  // so the display code (× 100) produces the correct result
+  if (str.includes('%')) return (parseFloat(str) || 0) / 100;
+  const num = parseFloat(str);
+  return isNaN(num) ? 0 : num;
 }
 
 function fmtCurrency(n) {
